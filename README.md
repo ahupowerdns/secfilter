@@ -60,6 +60,6 @@ The project, for now, only works on recent Linux kernels on 64 bit AMD & Intel a
 ## Thanks to
 
 This project builds on top of the examples and work by the Chromium
-developers, including Will Drewry.  The code you find here merely demonstrates 
+developers, including Kees Cook and Will Drewry. The code you find here merely demonstrates 
 their significant contributions to linux security.  Thanks!
 

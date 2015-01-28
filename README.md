@@ -39,6 +39,8 @@ $ ssh ds9a.nl
 ssh: Could not resolve hostname ds9a.nl: Name or service not known
 ```
 
+'secfilter --help' shows further options.
+
 ## seccomp-bpf, SECCOMP_RET_TRACE
 
 seccomp-bpf itself can tell the kernel using the BPF language which system

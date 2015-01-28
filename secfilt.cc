@@ -26,7 +26,7 @@ void processConfig(int argc, char** argv)
   po::options_description desc("Allowed options");
   desc.add_options()
     ("help,h", "produce help message")
-    ("write-directory", po::value<string>(), "only write here")
+    ("write-allow", po::value<string>(), "only write here")
     ("no-outbound-network", po::value<bool>()->default_value(false), "no outgoing network connections")
     ("allowed-netmasks", po::value<string>()->default_value("0.0.0.0/0"), "only allow access to these maskas")
     ("allowed-ports", po::value<int>(), "only allow access to these ports")
@@ -233,12 +233,12 @@ bool checkNetworkPolicy(const ComboAddress& dest, pid_t child, ofstream& logger)
 
 bool checkWritePolicy(const string& path, pid_t child, ofstream& logger)
 {
-  if(g_vm.count("write-directory")) {
-    if(boost::starts_with(path, g_vm["write-directory"].as<string>())) {
+  if(g_vm.count("write-allow")) {
+    if(boost::starts_with(path, g_vm["write-allow"].as<string>())) {
       return true;
     }
     else
-      logger<<child<<": open of '"<<path<<"' denied, did not start with '"<<g_vm["write-directory"].as<string>()<<"' "<<endl;
+      logger<<child<<": open of '"<<path<<"' denied, did not start with '"<<g_vm["write-allow"].as<string>()<<"' "<<endl;
   }
 
   if(g_vm["read-only"].as<bool>()) 

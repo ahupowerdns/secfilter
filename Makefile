@@ -10,7 +10,7 @@ CFLAGS=-Wall -I.  -O3 -MMD -MP -DHAVE_LINUX_SECCOMP_H
 LDFLAGS+=$(CXX2011FLAGS) -pthread  $(STATICFLAGS) 
 CHEAT_ARG := $(shell ./update-git-hash-if-necessary)
 
-SHIPPROGRAMS=secfilt testing
+SHIPPROGRAMS=secfilt 
 PROGRAMS=$(SHIPPROGRAMS) 
 
 all: $(PROGRAMS)
@@ -22,17 +22,12 @@ all: $(PROGRAMS)
 secfilt: secfilt.o  iputils.o 
 	$(CC) $^ $(LDFLAGS) -o $@
 
-testing: testing.o  
-	$(CC) $^ $(LDFLAGS) -o $@
-
 
 syscall-names.h: /usr/include/syscall.h 
 	echo "static const char *syscall_names[] = {" > $@ ;\
 	echo "#include <syscall.h>" | cpp -dM | grep '^#define __NR_' | \
 	LC_ALL=C sed -r -n -e 's/^\#define[ \t]+__NR_([a-z0-9_]+)[ \t]+([0-9]+)(.*)/ [\2] = "\1",/p' >> $@ ;\
 	echo "};" >> $@
-
-syscall-reporter.o: syscall-reporter.c syscall-names.h
 
 clean:
 	rm -f *~ *.o *.d $(PROGRAMS) githash.h 

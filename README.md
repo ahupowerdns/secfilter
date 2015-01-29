@@ -49,6 +49,8 @@ does not mean that a secfilter-wrapped process is being "straced". Only selected
 syscalls actually get referred to userspace filtering. As such, there is little
 performance overhead in many cases.
 
+More about seccomp-bpf can be found on http://outflux.net/teach-seccomp/
+
 This project builds on top of the examples and work by the Chromium
 developers.  The code you find here merely demonstrates their contributions
 to linux security.  Thanks!

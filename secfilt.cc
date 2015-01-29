@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <boost/program_options.hpp>
 #include "iputils.hh"
+#include <unordered_map>
 
 namespace po = boost::program_options;
 po::variables_map g_vm;
@@ -13,9 +14,8 @@ using namespace std;
 extern "C" 
 {
 #include "seccomp-bpf.h"
-#include <sys/user.h>  
 }
-
+#include <sys/user.h>  
 #include <sys/types.h>
 #include <sys/wait.h>
 
@@ -216,6 +216,9 @@ ComboAddress getPtraceComboAddress(pid_t child, unsigned long long sockaddr, uns
 
 bool checkNetworkPolicy(const ComboAddress& dest, pid_t child, ofstream& logger)
 {
+  if(g_vm["no-outbound-network"].as<bool>())
+    return false;
+
   if(dest.sin4.sin_family == AF_INET || dest.sin4.sin_family == AF_INET6) {
     logger<<child<<": Wants to connect to "<<dest.toStringWithPort()<<endl;
     if(!g_nmg.match(dest)) {
@@ -247,6 +250,67 @@ bool checkWritePolicy(const string& path, pid_t child, ofstream& logger)
   return true;
 }
 
+void openHandler(pid_t child, user_regs_struct& regs, ofstream& logger)
+{
+  string path = getFullPath(child, regs.rdi);
+  int mode=regs.rsi & 0xffff;
+  logger<<child<<": Wants to open absolute path: '"<<path<<"', mode "<<mode<< ", "<<(mode & O_WRONLY)<<", "<<(mode & O_RDWR)<<endl;
+  
+  if((mode & O_WRONLY) || (mode & O_RDWR)) {
+    if(!checkWritePolicy(path, child, logger)) {
+      logger<<child<<": open denied"<<endl;
+      justSayNo(child, regs);
+    }
+  }  
+}
+
+void openatHandler(pid_t child, user_regs_struct& regs, ofstream& logger)
+{
+
+  string path=getFullPathAt(child, regs.rdi, regs.rsi);
+  int mode=regs.rdx & 0xffff;
+
+  logger<<child<<": Wants to openat absolute path: '"<<path<<"', mode "<<mode<< ", "<<(mode & O_WRONLY)<<", "<<(mode & O_RDWR)<<endl;
+  if((mode & O_WRONLY) || (mode & O_RDWR)) {
+    if(!checkWritePolicy(path, child, logger)) {
+      logger<<child<<": openat denied "<<(mode&O_WRONLY) <<", "<<(mode & O_RDWR)<<endl;
+      justSayNo(child, regs);
+    }
+  }
+}
+
+void connectHandler(pid_t child, user_regs_struct& regs, ofstream& logger)
+{
+// rdi, rsi, rdx = socket, addressptr, length
+  
+  ComboAddress dest=getPtraceComboAddress(child, regs.rsi, regs.rdx);
+  if(!checkNetworkPolicy(dest, child, logger)) {
+    justSayNo(child, regs);
+  }
+}
+
+void unlinkHandler(pid_t child, user_regs_struct& regs, ofstream& logger)
+{
+  string path = getFullPath(child, regs.rdi);
+  logger<<child<<": wants to delete '"<<path<<"'"<<endl;
+  if(!checkWritePolicy(path, child, logger)) {
+    logger<<child<<": unlink denied"<<endl;
+    justSayNo(child, regs);
+  }
+}
+
+void unlinkatHandler(pid_t child, user_regs_struct& regs, ofstream& logger)
+{
+  string path = getFullPathAt(child, regs.rdi, regs.rsi);
+  logger<<child<<": wants to delete '"<<path<<"'"<<endl;
+  if(!checkWritePolicy(path, child, logger)) {
+    logger<<child<<": unlinkat denied"<<endl;
+    justSayNo(child, regs);
+  }
+}
+
+unordered_map<unsigned int, function<void(pid_t child, user_regs_struct&, ofstream&)>> g_handlers;
+
 int main(int argc, char** argv)
 try
 {
@@ -255,6 +319,16 @@ try
   pid_t child=fork();
   if(child) {
     signal(SIGINT, SIG_IGN);
+
+    g_handlers.insert({
+	{__NR_open,     openHandler},
+	{__NR_openat,   openatHandler},
+	{__NR_connect,  connectHandler},
+	{__NR_unlink,   unlinkHandler},
+	{__NR_unlinkat, unlinkatHandler}
+      });
+
+
     ofstream logger("log");
     logger<<"Our child is "<<child<<endl;
     int status;
@@ -325,64 +399,11 @@ try
         exit(1);
       }
 
-      if (regs.orig_rax == __NR_open) {	
-        string path = getFullPath(child, regs.rdi);
-	
-	int mode=regs.rsi & 0xffff;
-        logger<<child<<": Wants to open absolute path: '"<<path<<"', mode "<<mode<<endl;
-
-	if((mode & O_WRONLY) || (mode & O_RDWR) || (mode & O_CREAT)) {
-	  if(!checkWritePolicy(path, child, logger)) {
-	    logger<<child<<": open denied"<<endl;
-	    justSayNo(child, regs);
-	  }
-	}
-	
-              
-      } else if(regs.orig_rax == __NR_openat) {
-	logger<<child<<": Openat on fd "<< (int) regs.rdi<<", "<<getcwdForDir(child, regs.rdi)<<endl;
-	string path=getFullPathAt(child, regs.rdi, regs.rsi);
-	int mode=regs.rsi & 0xffff;
-
-	logger<<child<<": Wants to openat() absolute path: '"<<path<<"', mode "<<regs.rdx<<endl;
-	if((mode & O_WRONLY) || (mode & O_RDWR)) {
-	  if(!checkWritePolicy(path, child, logger)) {
-	    logger<<child<<": openat denied "<<(mode&O_WRONLY) <<", "<<(mode & O_RDWR)<<endl;
-	    justSayNo(child, regs);
-	  }
-	}
-
-      }
-      else if(regs.orig_rax == __NR_connect) {
-	if(g_vm["no-outbound-network"].as<bool>())
-	  justSayNo(child, regs);
-
-	// rdi, rsi, rdx = socket, addressptr, length
-
-	ComboAddress dest=getPtraceComboAddress(child, regs.rsi, regs.rdx);
-	if(!checkNetworkPolicy(dest, child, logger)) {
-	  justSayNo(child, regs);
-	}
-      }
-      else if(regs.orig_rax ==__NR_unlink ) {
-        string path = getFullPath(child, regs.rdi);
-	logger<<child<<": wants to delete '"<<path<<"'"<<endl;
-	if(!checkWritePolicy(path, child, logger)) {
-	  logger<<child<<": unlink denied"<<endl;
-	  justSayNo(child, regs);
-	}
-      }
-      else if(regs.orig_rax ==__NR_unlinkat ) {
-        string path = getFullPathAt(child, regs.rdi, regs.rsi);
-	logger<<child<<": wants to delete '"<<path<<"'"<<endl;
-	if(!checkWritePolicy(path, child, logger)) {
-	  logger<<child<<": unlinkat denied"<<endl;
-	  justSayNo(child, regs);
-	}
-      }
-
-      else if (regs.orig_rax == __NR_execve || regs.orig_rax == __NR_vfork || regs.orig_rax==__NR_fork) {
-	// we get these, but no need to do anything: execve, vfork, fork
+      auto handler = g_handlers.find(regs.orig_rax);
+      if(handler != g_handlers.end())
+	handler->second(child, regs, logger);
+      else if (regs.orig_rax == __NR_execve || regs.orig_rax == __NR_vfork || regs.orig_rax==__NR_fork || regs.orig_rax==__NR_clone) {
+	// we get these, but no need to do anything
       }
       else 
 	logger<<child<<": untracked system call "<<regs.orig_rax<<endl;

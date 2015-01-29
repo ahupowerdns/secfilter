@@ -1,7 +1,10 @@
 # secfilter
 
-NOTE: This is a very early version of the software, only made available for early criticism. 
-We know there are gaping security holes in the implementation. 
+NOTE: This is a very crude version of the software, only made available for early criticism. 
+We know there are gaping security holes in the implementation & potentially even the idea itself. 
+Feedback is very welcome - bert.hubert@powerdns.com!
+
+## What it is
 
 Small demo project how to build interesting sandboxes easily using seccomp-bpf plus
 the SECCOMP_RET_TRACE feature, based on standard, shipping, Linux technologies.
@@ -36,6 +39,10 @@ $ ssh ds9a.nl
 ssh: Could not resolve hostname ds9a.nl: Name or service not known
 ```
 
+'secfilt --help' shows further options.
+
+## seccomp-bpf, SECCOMP_RET_TRACE
+
 seccomp-bpf itself can tell the kernel using the BPF language which system
 calls are allowed, and it can even do some arithmetic on arguments to determine
 what is possible or not.
@@ -50,8 +57,14 @@ syscalls actually get referred to userspace filtering. As such, there is little
 performance overhead in many cases.
 
 More about seccomp-bpf can be found on http://outflux.net/teach-seccomp/
+=======
+
+## Limitations
+The project, for now, only works on recent Linux kernels on 64 bit AMD & Intel architectures.
+
+## Thanks to
 
 This project builds on top of the examples and work by the Chromium
-developers.  The code you find here merely demonstrates their contributions
-to linux security.  Thanks!
+developers, including Kees Cook and Will Drewry. The code you find here merely demonstrates 
+their significant contributions to linux security.  Thanks!
 

@@ -27,8 +27,9 @@ void processConfig(int argc, char** argv)
   desc.add_options()
     ("help,h", "produce help message")
     ("write-allow", po::value<string>(), "only write here")
+    ("mainstream-network-families", "only allow AF_UNIX, AF_INET, AF_INET6 and AF_NETLINK")
     ("no-outbound-network", po::value<bool>()->default_value(false), "no outgoing network connections")
-    ("allowed-netmasks", po::value<string>()->default_value("0.0.0.0/0"), "only allow access to these maskas")
+    ("allowed-netmask", po::value<vector<string> >(), "only allow access to these masks")
     ("allowed-ports", po::value<int>(), "only allow access to these ports")
     ("read-only", po::value<bool>()->default_value(false), "be read-only");
 
@@ -40,9 +41,11 @@ void processConfig(int argc, char** argv)
 
     po::store(po::command_line_parser(i, argv).options(desc).run(), g_vm);
     po::notify(g_vm);
-
     
-    g_nmg.addMask(g_vm["allowed-netmasks"].as<string>());
+    if(g_vm.count("allowed-netmask"))
+    for(const auto& a : g_vm["allowed-netmask"].as<vector<string> >()) {
+      g_nmg.addMask(a);
+    }
 
     if(g_vm.count("help")) {
       cout<<desc<<endl;
@@ -63,29 +66,31 @@ void processConfig(int argc, char** argv)
   }
 }
 
+unordered_map<unsigned int, function<void(pid_t child, user_regs_struct&, ofstream&)>> g_handlers;
 
 #define TRACE_SYSCALL(name) \
 	BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, __NR_##name, 0, 1), \
 	BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE)
 
+#define TRACE_SYSCALLNO(no) \
+	BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, no, 0, 1), \
+	BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE)
+
+
 static int install_syscall_filter(void)
 {
-	struct sock_filter filter2[] = {
-		/* Validate architecture. */
-		VALIDATE_ARCHITECTURE,
-		/* Grab the system call number. */
-		EXAMINE_SYSCALL,
-		TRACE_SYSCALL(open),
-		TRACE_SYSCALL(openat),
-		TRACE_SYSCALL(connect),
-		TRACE_SYSCALL(unlink),
-		TRACE_SYSCALL(unlinkat),
-		BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_ALLOW)
-	};
+	vector<sock_filter> filter;
+	for(const sock_filter& a : initializer_list<sock_filter>{VALIDATE_ARCHITECTURE})
+	  filter.push_back(a);
+	filter.push_back(EXAMINE_SYSCALL);
+	for(const auto& a : g_handlers) 
+	  for(const auto& b : initializer_list<sock_filter>{TRACE_SYSCALLNO(a.first)})
+	    filter.push_back(b);
+	filter.push_back(BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_ALLOW));
 
 	struct sock_fprog prog = {
-		.len = (unsigned short)(sizeof(filter2)/sizeof(filter2[0])),
-		.filter = filter2,
+	  .len = (unsigned short)filter.size(),
+	  .filter = &filter[0],
 	};
 
 	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
@@ -221,7 +226,7 @@ bool checkNetworkPolicy(const ComboAddress& dest, pid_t child, ofstream& logger)
 
   if(dest.sin4.sin_family == AF_INET || dest.sin4.sin_family == AF_INET6) {
     logger<<child<<": Wants to connect to "<<dest.toStringWithPort()<<endl;
-    if(!g_nmg.match(dest)) {
+    if(!g_nmg.empty() && !g_nmg.match(dest)) {
       logger<<child<<": denied connection to to "<<dest.toStringWithPort()<<endl;
       return false;
     }
@@ -309,7 +314,18 @@ void unlinkatHandler(pid_t child, user_regs_struct& regs, ofstream& logger)
   }
 }
 
-unordered_map<unsigned int, function<void(pid_t child, user_regs_struct&, ofstream&)>> g_handlers;
+void socketHandler(pid_t child, user_regs_struct& regs, ofstream& logger) 
+{
+  if(!g_vm.count("mainstream-network-families"))
+    return;
+  
+  for(decltype(regs.rdi) i : {AF_INET, AF_INET6, AF_UNIX, AF_NETLINK})
+    if(regs.rdi == i)
+      return;
+  
+  logger<<child<<": denying creation of socket of type "<<regs.rdi<<endl;
+  justSayNo(child, regs);
+}
 
 int main(int argc, char** argv)
 try
@@ -317,17 +333,19 @@ try
   processConfig(argc, argv);
   
   pid_t child=fork();
-  if(child) {
-    signal(SIGINT, SIG_IGN);
 
-    g_handlers.insert({
+  g_handlers.insert({
 	{__NR_open,     openHandler},
 	{__NR_openat,   openatHandler},
 	{__NR_connect,  connectHandler},
 	{__NR_unlink,   unlinkHandler},
-	{__NR_unlinkat, unlinkatHandler}
+	{__NR_unlinkat, unlinkatHandler},
+	{__NR_socket,   socketHandler}
       });
 
+  
+  if(child) {
+    signal(SIGINT, SIG_IGN);
 
     ofstream logger("log");
     logger<<"Our child is "<<child<<endl;

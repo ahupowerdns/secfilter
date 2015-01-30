@@ -27,7 +27,7 @@ telnet: could not resolve ds9a.nl/25: Name or service not known
 And finally:
 
 ```
-$ secfilt --allowed-netmasks=192.168.1.0/24 bash
+$ secfilt --allowed-netmask=192.168.1.0/24 --allowed-netmask=127.0.0.0/8 bash
 $ telnet 192.168.1.2 22
 Trying 192.168.1.2...
 Connected to 192.168.1.2.
@@ -39,7 +39,19 @@ $ ssh ds9a.nl
 ssh: Could not resolve hostname ds9a.nl: Name or service not known
 ```
 
-'secfilt --help' shows further options.
+'secfilt --help' shows further options:
+
+```
+Allowed options:
+  -h [ --help ]                  produce help message
+  --write-allow arg              only write here
+  --mainstream-network-families  only allow AF_UNIX, AF_INET, AF_INET6 and 
+                                 AF_NETLINK
+  --no-outbound-network arg (=0) no outgoing network connections
+  --allowed-netmask arg          only allow access to these masks
+  --allowed-ports arg            only allow access to these ports
+  --read-only arg (=0)           be read-only
+```
 
 ## seccomp-bpf, SECCOMP_RET_TRACE
 
@@ -57,9 +69,12 @@ syscalls actually get referred to userspace filtering. As such, there is little
 performance overhead in many cases.
 
 More about seccomp-bpf can be found on http://outflux.net/teach-seccomp/
-=======
+
+An interesting paper and research software exploiting the same principles
+can be found via http://pdos.csail.mit.edu/mbox/
 
 ## Limitations
+
 The project, for now, only works on recent Linux kernels on 64 bit AMD & Intel architectures.
 
 ## Thanks to

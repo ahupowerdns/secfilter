@@ -5,8 +5,8 @@ ifeq ($(CXX),clang++)
 	CXX2011FLAGS=-std=c++11 -stdlib=libc++
 endif
 
-CXXFLAGS?=-Wall -O3 -ggdb -I. -MMD -MP -DHAVE_LINUX_SECCOMP_H $(CXX2011FLAGS)
-CFLAGS=-Wall -I.  -O3 -MMD -MP -DHAVE_LINUX_SECCOMP_H
+CXXFLAGS?=-Wall -O2 -I. -MMD -MP -DHAVE_LINUX_SECCOMP_H $(CXX2011FLAGS)
+CFLAGS=-Wall -I.  -O2 -MMD -MP -DHAVE_LINUX_SECCOMP_H
 LDFLAGS+=$(CXX2011FLAGS) -pthread  $(STATICFLAGS) 
 CHEAT_ARG := $(shell ./update-git-hash-if-necessary)
 
@@ -19,7 +19,7 @@ all: $(PROGRAMS)
 
 .PHONY:	check
 
-secfilt: secfilt.o  iputils.o 
+secfilt: secfilt.o  iputils.o gather.o
 	$(CC) $^ $(LDFLAGS) -o $@
 
 syscall-names.h: /usr/include/syscall.h 
@@ -27,7 +27,7 @@ syscall-names.h: /usr/include/syscall.h
 	echo "#include <syscall.h>" | cpp -dM | grep '^#define __NR_' | \
 	LC_ALL=C sed -r -n -e 's/^\#define[ \t]+__NR_([a-z0-9_]+)[ \t]+([0-9]+)(.*)/ [\2] = "\1",/p' >> $@ ;\
 	echo "};" >> $@
-					
+
 clean:
 	rm -f *~ *.o *.d $(PROGRAMS) githash.h 
 

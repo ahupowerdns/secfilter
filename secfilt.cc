@@ -6,6 +6,7 @@
 #include <boost/program_options.hpp>
 #include "iputils.hh"
 #include <unordered_map>
+#include <functional>
 
 namespace po = boost::program_options;
 po::variables_map g_vm;
@@ -66,7 +67,28 @@ void processConfig(int argc, char** argv)
   }
 }
 
-unordered_map<unsigned int, function<void(pid_t child, user_regs_struct&, ofstream&)>> g_handlers;
+struct HandlerSet
+{
+  HandlerSet(pid_t child, user_regs_struct& regs, ofstream& logger) 
+    : d_child(child), d_regs(regs), d_logger(logger) {}
+
+  void openHandler();
+  void testHandler(int) {}
+  void openatHandler();
+  void connectHandler();
+  void sendtoHandler();
+  void sendmsgHandler();
+  void unlinkHandler();
+  void unlinkatHandler();
+  void chdirHandler();
+  void socketHandler();
+
+  pid_t d_child;
+  user_regs_struct& d_regs;
+  ofstream& d_logger;
+};
+
+unordered_map<unsigned int, function<void(HandlerSet&)>> g_handlers;
 
 #define TRACE_SYSCALL(name) \
 	BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, __NR_##name, 0, 1), \
@@ -294,102 +316,109 @@ bool checkWritePolicy(const string& path, pid_t child, ofstream& logger)
   return true;
 }
 
-void openHandler(pid_t child, user_regs_struct& regs, ofstream& logger)
+
+
+void HandlerSet::openHandler()
 {
-  string path = getFullPath(child, regs.rdi);
-  int mode=regs.rsi & 0xffff;
-  logger<<child<<": Wants to open absolute path: '"<<path<<"', mode "<<mode<< ", "<<(mode & O_WRONLY)<<", "<<(mode & O_RDWR)<<endl;
+  string path = getFullPath(d_child, d_regs.rdi);
+  int mode=d_regs.rsi & 0xffff;
+  d_logger<<d_child<<": Wants to open absolute path: '"<<path<<"', mode "<<mode<< ", "<<(mode & O_WRONLY)<<", "<<(mode & O_RDWR)<<endl;
   
   if((mode & O_WRONLY) || (mode & O_RDWR)) {
-    if(!checkWritePolicy(path, child, logger)) {
-      logger<<child<<": open denied"<<endl;
-      justSayNo(child, regs);
+    if(!checkWritePolicy(path, d_child, d_logger)) {
+      d_logger<<d_child<<": open denied"<<endl;
+      justSayNo(d_child, d_regs);
     }
   }  
 }
 
-void openatHandler(pid_t child, user_regs_struct& regs, ofstream& logger)
+void HandlerSet::openatHandler()
 {
 
-  string path=getFullPathAt(child, regs.rdi, regs.rsi);
-  int mode=regs.rdx & 0xffff;
+  string path=getFullPathAt(d_child, d_regs.rdi, d_regs.rsi);
+  int mode=d_regs.rdx & 0xffff;
 
-  logger<<child<<": Wants to openat absolute path: '"<<path<<"', mode "<<mode<< ", "<<(mode & O_WRONLY)<<", "<<(mode & O_RDWR)<<endl;
+  d_logger<<d_child<<": Wants to openat absolute path: '"<<path<<"', mode "<<mode<< ", "<<(mode & O_WRONLY)<<", "<<(mode & O_RDWR)<<endl;
   if((mode & O_WRONLY) || (mode & O_RDWR)) {
-    if(!checkWritePolicy(path, child, logger)) {
-      logger<<child<<": openat denied "<<(mode&O_WRONLY) <<", "<<(mode & O_RDWR)<<endl;
-      justSayNo(child, regs);
+    if(!checkWritePolicy(path, d_child, d_logger)) {
+      d_logger<<d_child<<": openat denied "<<(mode&O_WRONLY) <<", "<<(mode & O_RDWR)<<endl;
+      justSayNo(d_child, d_regs);
     }
   }
 }
 
-void connectHandler(pid_t child, user_regs_struct& regs, ofstream& logger)
+void HandlerSet::connectHandler()
 {
 // rdi, rsi, rdx = socket, addressptr, length
   
-  ComboAddress dest=getPtraceComboAddress(child, regs.rsi, regs.rdx);
-  if(!checkNetworkPolicy(dest, child, logger)) {
-    justSayNo(child, regs);
+  ComboAddress dest=getPtraceComboAddress(d_child, d_regs.rsi, d_regs.rdx);
+  if(!checkNetworkPolicy(dest, d_child, d_logger)) {
+    justSayNo(d_child, d_regs);
   }
 }
 
-void sendtoHandler(pid_t child, user_regs_struct& regs, ofstream& logger)
+void HandlerSet::sendtoHandler()
 {
   // ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
   //                const struct sockaddr *dest_addr, socklen_t addrlen);
   
-  ComboAddress dest=getPtraceComboAddress(child, getArg5(regs), getArg6(regs));
-  if(!checkNetworkPolicy(dest, child, logger)) {
-    justSayNo(child, regs);
+  ComboAddress dest=getPtraceComboAddress(d_child, getArg5(d_regs), getArg6(d_regs));
+  if(!checkNetworkPolicy(dest, d_child, d_logger)) {
+    justSayNo(d_child, d_regs);
   }
 }
 
 
-void sendmsgHandler(pid_t child, user_regs_struct& regs, ofstream& logger)
+void HandlerSet::sendmsgHandler()
 {
   // ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags);
 
   struct msghdr msg;
-  getPtraceBytes(child, (char*)&msg, getArg2(regs), sizeof(msg));
-  ComboAddress dest=getPtraceComboAddress(child, (unsigned long long)msg.msg_name, msg.msg_namelen);
+  getPtraceBytes(d_child, (char*)&msg, getArg2(d_regs), sizeof(msg));
+  ComboAddress dest=getPtraceComboAddress(d_child, (unsigned long long)msg.msg_name, msg.msg_namelen);
 
-  if(!checkNetworkPolicy(dest, child, logger)) {
-    justSayNo(child, regs);
+  if(!checkNetworkPolicy(dest, d_child, d_logger)) {
+    justSayNo(d_child, d_regs);
   }
 }
 
 
-void unlinkHandler(pid_t child, user_regs_struct& regs, ofstream& logger)
+void HandlerSet::unlinkHandler()
 {
-  string path = getFullPath(child, regs.rdi);
-  logger<<child<<": wants to delete '"<<path<<"'"<<endl;
-  if(!checkWritePolicy(path, child, logger)) {
-    logger<<child<<": unlink denied"<<endl;
-    justSayNo(child, regs);
+  string path = getFullPath(d_child, d_regs.rdi);
+  d_logger<<d_child<<": wants to delete '"<<path<<"'"<<endl;
+  if(!checkWritePolicy(path, d_child, d_logger)) {
+    d_logger<<d_child<<": unlink denied"<<endl;
+    justSayNo(d_child, d_regs);
   }
 }
 
-void unlinkatHandler(pid_t child, user_regs_struct& regs, ofstream& logger)
+void HandlerSet::unlinkatHandler()
 {
-  string path = getFullPathAt(child, regs.rdi, regs.rsi);
-  logger<<child<<": wants to delete '"<<path<<"'"<<endl;
-  if(!checkWritePolicy(path, child, logger)) {
-    logger<<child<<": unlinkat denied"<<endl;
-    justSayNo(child, regs);
+  string path = getFullPathAt(d_child, d_regs.rdi, d_regs.rsi);
+  d_logger<<d_child<<": wants to delete '"<<path<<"'"<<endl;
+  if(!checkWritePolicy(path, d_child, d_logger)) {
+    d_logger<<d_child<<": unlinkat denied"<<endl;
+    justSayNo(d_child, d_regs);
   }
 }
 
-void socketHandler(pid_t child, user_regs_struct& regs, ofstream& logger) 
+void HandlerSet::chdirHandler()
+{
+  // we just hook this so we can prevent other threads from being crafty under us
+}
+
+void HandlerSet::socketHandler() 
 {
   if(!g_vm.count("mainstream-network-families"))
     return;
   
-  for(decltype(regs.rdi) i : {AF_INET, AF_INET6, AF_UNIX, AF_NETLINK})
-    if(regs.rdi == i)
+  for(decltype(d_regs.rdi) i : {AF_INET, AF_INET6, AF_UNIX, AF_NETLINK})
+    if(d_regs.rdi == i)
       return;
   
-  logger<<child<<": denying creation of socket of type "<<regs.rdi<<endl;
-  justSayNo(child, regs);
+  d_logger<<d_child<<": denying creation of socket of type "<<d_regs.rdi<<endl;
+  justSayNo(d_child, d_regs);
 }
 
 int main(int argc, char** argv)
@@ -400,16 +429,17 @@ try
   pid_t child=fork();
 
   g_handlers.insert({
-	{__NR_open,     openHandler},
-	{__NR_openat,   openatHandler},
-	{__NR_connect,  connectHandler},
-	{__NR_sendto,  sendtoHandler},
-	{__NR_sendmsg,  sendmsgHandler},
-	{__NR_unlink,   unlinkHandler},
-	{__NR_unlinkat, unlinkatHandler},
-	{__NR_socket,   socketHandler}
+      {__NR_open,       &HandlerSet::openHandler},
+	{__NR_openat,   &HandlerSet::openatHandler},
+	{__NR_connect,  &HandlerSet::connectHandler},
+	{__NR_sendto,   &HandlerSet::sendtoHandler},
+	{__NR_chdir,    &HandlerSet::chdirHandler},
+	{__NR_fchdir,   &HandlerSet::chdirHandler},
+	{__NR_sendmsg,  &HandlerSet::sendmsgHandler},
+	{__NR_unlink,   &HandlerSet::unlinkHandler},
+	{__NR_unlinkat, &HandlerSet::unlinkatHandler},
+	{__NR_socket,   &HandlerSet::socketHandler}
       });
-
   
   if(child) {
     signal(SIGINT, SIG_IGN);
@@ -485,8 +515,10 @@ try
       }
 
       auto handler = g_handlers.find(regs.orig_rax);
-      if(handler != g_handlers.end())
-	handler->second(child, regs, logger);
+      if(handler != g_handlers.end()) {
+	HandlerSet hs(child, regs, logger);
+	handler->second(hs);
+      }
       else if (regs.orig_rax == __NR_execve || regs.orig_rax == __NR_vfork || regs.orig_rax==__NR_fork || regs.orig_rax==__NR_clone) {
 	// we get these, but no need to do anything
       }

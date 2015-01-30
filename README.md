@@ -42,16 +42,20 @@ ssh: Could not resolve hostname ds9a.nl: Name or service not known
 'secfilt --help' shows further options:
 
 ```
-Allowed options:
   -h [ --help ]                  produce help message
-  --write-allow arg              only write here
+  -c [ --config ] arg            configuration file
+  --allow-write arg              only write here
   --mainstream-network-families  only allow AF_UNIX, AF_INET, AF_INET6 and 
                                  AF_NETLINK
   --no-outbound-network arg (=0) no outgoing network connections
   --allowed-netmask arg          only allow access to these masks
-  --allowed-port arg             only allow access to these ports
+  --allowed-port arg             allow access to this port
   --read-only arg (=0)           be read-only
 ```
+
+Sample configuration files can be found
+[here](https://github.com/ahupowerdns/secfilter/tree/master/samples), 
+contributions welcome.
 
 ## seccomp-bpf, SECCOMP_RET_TRACE
 

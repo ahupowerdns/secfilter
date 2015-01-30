@@ -23,12 +23,15 @@ extern "C"
 
 NetmaskGroup g_nmg;
 std::unordered_set<unsigned int> g_allowedPorts;
+std::unordered_set<string> g_allowWrite;
+
 void processConfig(int argc, char** argv)
 {
   po::options_description desc("Allowed options");
   desc.add_options()
     ("help,h", "produce help message")
-    ("write-allow", po::value<string>(), "only write here")
+    ("config,c", po::value<string>(), "configuration file")
+    ("allow-write", po::value<vector<string> >(), "only write here")
     ("mainstream-network-families", "only allow AF_UNIX, AF_INET, AF_INET6 and AF_NETLINK")
     ("no-outbound-network", po::value<bool>()->default_value(false), "no outgoing network connections")
     ("allowed-netmask", po::value<vector<string> >(), "only allow access to these masks")
@@ -43,6 +46,20 @@ void processConfig(int argc, char** argv)
 
     po::store(po::command_line_parser(i, argv).options(desc).run(), g_vm);
     po::notify(g_vm);
+
+    if(g_vm.count("config")) {
+      std::ifstream settings_file( g_vm["config"].as<string>() , std::ifstream::in );
+      po::store(po::parse_config_file(settings_file, desc), g_vm);
+      po::store(po::command_line_parser(i, argv).options(desc).run(), g_vm);
+      po::notify(g_vm);
+    }
+
+
+    if(g_vm.count("allow-write"))
+    for(const auto& a : g_vm["allow-write"].as<vector<string> >()) {
+      g_allowWrite.insert(a);
+    }
+
     
     if(g_vm.count("allowed-netmask"))
     for(const auto& a : g_vm["allowed-netmask"].as<vector<string> >()) {
@@ -60,12 +77,7 @@ void processConfig(int argc, char** argv)
       exit(EXIT_SUCCESS);
     }
 
-
-    /*
-    std::ifstream settings_file( config , std::ifstream::in );
-    po::store(po::parse_config_file(settings_file, desc), g_vm);
-    po::notify(g_vm);
-    */
+     
   }
   catch(std::exception& e) {
     cerr<<"Error parsing options: "<<e.what()<<endl;
@@ -218,10 +230,12 @@ void hookChild(pid_t child)
 string getFullPath(pid_t child, unsigned long long fileptr)
 {
   string path=getPtraceString(child, fileptr);
-  // logger<<child<<": Wants to open() path: '"<<path<<"'"<<endl;
+
   if(!path.empty() && path[0]!='/')
     path=getcwdFor(child)+"/"+path;
+
   cleanupPath(path);
+
   return path;
 }
 
@@ -258,6 +272,7 @@ unsigned long long getArg6(const struct user_regs_struct& regs)
 string getFullPathAt(pid_t child, unsigned long long fd, unsigned long long fileptr)
 {
   string relpath=getPtraceString(child, fileptr);
+
   string path;
   if(!relpath.empty() && relpath[0]!='/') 
     path=getcwdForDir(child, fd)+"/"+relpath;
@@ -298,7 +313,7 @@ bool checkNetworkPolicy(const std::string& what, const ComboAddress& dest, pid_t
       logger<<child<<": denied connection to to "<<dest.toStringWithPort()<<endl;
       return false;
     }
-    if(g_allowedPorts.empty() && !g_allowedPorts.count(htons(dest.sin4.sin_port))) {
+    if(!g_allowedPorts.empty() && !g_allowedPorts.count(htons(dest.sin4.sin_port))) {
       logger<<child<<": denied connection to to "<<dest.toStringWithPort()<<" based on port"<<endl;
       return false;
     }
@@ -309,12 +324,17 @@ bool checkNetworkPolicy(const std::string& what, const ComboAddress& dest, pid_t
 
 bool checkWritePolicy(const string& path, pid_t child, ofstream& logger)
 {
-  if(g_vm.count("write-allow")) {
-    if(boost::starts_with(path, g_vm["write-allow"].as<string>())) {
-      return true;
+  if(!g_allowWrite.empty()) {
+    for(const auto& w : g_allowWrite) {
+      if(boost::starts_with(path, w)) {
+	return true;
+      }
     }
-    else
-      logger<<child<<": open of '"<<path<<"' denied, did not start with '"<<g_vm["write-allow"].as<string>()<<"' "<<endl;
+    logger<<child<<": open of '"<<path<<"' denied, did not start with any of "<<endl;
+    for(const auto& w : g_allowWrite) {
+      logger<<child<<":     "<<w<<endl;
+    }
+    return false;
   }
 
   if(g_vm["read-only"].as<bool>()) 
@@ -392,7 +412,7 @@ void HandlerSet::sendmsgHandler()
 void HandlerSet::unlinkHandler()
 {
   string path = getFullPath(d_child, d_regs.rdi);
-  d_logger<<d_child<<": wants to delete '"<<path<<"'"<<endl;
+  d_logger<<d_child<<": wants to unlink '"<<path<<"'"<<endl;
   if(!checkWritePolicy(path, d_child, d_logger)) {
     d_logger<<d_child<<": unlink denied"<<endl;
     justSayNo(d_child, d_regs);
@@ -402,7 +422,7 @@ void HandlerSet::unlinkHandler()
 void HandlerSet::unlinkatHandler()
 {
   string path = getFullPathAt(d_child, d_regs.rdi, d_regs.rsi);
-  d_logger<<d_child<<": wants to delete '"<<path<<"'"<<endl;
+  d_logger<<d_child<<": wants to ulinkat '"<<path<<"'"<<endl;
   if(!checkWritePolicy(path, d_child, d_logger)) {
     d_logger<<d_child<<": unlinkat denied"<<endl;
     justSayNo(d_child, d_regs);

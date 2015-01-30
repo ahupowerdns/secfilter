@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <functional>
+#include "gather.hh"
 
 namespace po = boost::program_options;
 po::variables_map g_vm;
@@ -32,6 +33,7 @@ void processConfig(int argc, char** argv)
     ("help,h", "produce help message")
     ("config,c", po::value<string>(), "configuration file")
     ("allow-write", po::value<vector<string> >(), "only write here")
+    ("allow-resolv", "Specifically allow resolution of domain names")
     ("mainstream-network-families", "only allow AF_UNIX, AF_INET, AF_INET6 and AF_NETLINK")
     ("no-outbound-network", po::value<bool>()->default_value(false), "no outgoing network connections")
     ("allowed-netmask", po::value<vector<string> >(), "only allow access to these masks")
@@ -77,7 +79,15 @@ void processConfig(int argc, char** argv)
       exit(EXIT_SUCCESS);
     }
 
-     
+    if(g_vm.count("allow-resolv")) {
+      if(!g_allowedPorts.empty())
+	g_allowedPorts.insert(53);
+      auto resolvers = parseResolveConf();
+      if(!g_nmg.empty()) {
+	for(const auto& a: resolvers)
+	  g_nmg.addMask(a.toString());
+      }
+    }
   }
   catch(std::exception& e) {
     cerr<<"Error parsing options: "<<e.what()<<endl;

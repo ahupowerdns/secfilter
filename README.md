@@ -24,6 +24,12 @@ $ telnet ds9a.nl 25
 telnet: could not resolve ds9a.nl/25: Name or service not known
 ```
 
+Another example:
+```
+secfilt --allow-resolv --allowed-port=22 ssh pdnsdev.powerdns.com uptime
+ 18:30:52 up 31 days,  4:08,  1 user,  load average: 0.02, 0.04, 0.05
+```
+
 And finally:
 
 ```
@@ -42,9 +48,8 @@ ssh: Could not resolve hostname ds9a.nl: Name or service not known
 'secfilt --help' shows further options:
 
 ```
-  -h [ --help ]                  produce help message
-  -c [ --config ] arg            configuration file
   --allow-write arg              only write here
+  --allow-resolv                 Specifically allow resolution of domain names
   --mainstream-network-families  only allow AF_UNIX, AF_INET, AF_INET6 and 
                                  AF_NETLINK
   --no-outbound-network arg (=0) no outgoing network connections

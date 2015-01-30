@@ -42,7 +42,7 @@ telnet> q
 Connection closed.
 
 $ ssh ds9a.nl
-ssh: Could not resolve hostname ds9a.nl: Name or service not known
+ssh: connect to host ds9a.nl port 22: Operation not permitted
 ```
 
 'secfilt --help' shows further options:

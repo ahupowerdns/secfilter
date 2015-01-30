@@ -6,6 +6,7 @@
 #include <boost/program_options.hpp>
 #include "iputils.hh"
 #include <unordered_map>
+#include <unordered_set>
 #include <functional>
 
 namespace po = boost::program_options;
@@ -21,7 +22,7 @@ extern "C"
 #include <sys/wait.h>
 
 NetmaskGroup g_nmg;
-
+std::unordered_set<unsigned int> g_allowedPorts;
 void processConfig(int argc, char** argv)
 {
   po::options_description desc("Allowed options");
@@ -31,7 +32,7 @@ void processConfig(int argc, char** argv)
     ("mainstream-network-families", "only allow AF_UNIX, AF_INET, AF_INET6 and AF_NETLINK")
     ("no-outbound-network", po::value<bool>()->default_value(false), "no outgoing network connections")
     ("allowed-netmask", po::value<vector<string> >(), "only allow access to these masks")
-    ("allowed-ports", po::value<int>(), "only allow access to these ports")
+    ("allowed-port", po::value<vector<int> >(), "allow access to this port")
     ("read-only", po::value<bool>()->default_value(false), "be read-only");
 
   try {
@@ -47,6 +48,12 @@ void processConfig(int argc, char** argv)
     for(const auto& a : g_vm["allowed-netmask"].as<vector<string> >()) {
       g_nmg.addMask(a);
     }
+
+    if(g_vm.count("allowed-port"))
+    for(const auto& a : g_vm["allowed-port"].as<vector<int> >()) {
+      g_allowedPorts.insert(a);
+    }
+
 
     if(g_vm.count("help")) {
       cout<<desc<<endl;
@@ -280,18 +287,18 @@ ComboAddress getPtraceComboAddress(pid_t child, unsigned long long sockaddr, uns
   return ret;
 }
 
-bool checkNetworkPolicy(const ComboAddress& dest, pid_t child, ofstream& logger)
+bool checkNetworkPolicy(const std::string& what, const ComboAddress& dest, pid_t child, ofstream& logger)
 {
   if(g_vm["no-outbound-network"].as<bool>())
     return false;
 
   if(dest.sin4.sin_family == AF_INET || dest.sin4.sin_family == AF_INET6) {
-    logger<<child<<": Wants to connect to "<<dest.toStringWithPort()<<endl;
+    logger<<child<<": Wants to "<<what<<" to "<<dest.toStringWithPort()<<endl;
     if(!g_nmg.empty() && !g_nmg.match(dest)) {
       logger<<child<<": denied connection to to "<<dest.toStringWithPort()<<endl;
       return false;
     }
-    if(g_vm.count("allowed-ports") && htons(dest.sin4.sin_port) != g_vm["allowed-ports"].as<int>()) {
+    if(g_allowedPorts.empty() && !g_allowedPorts.count(htons(dest.sin4.sin_port))) {
       logger<<child<<": denied connection to to "<<dest.toStringWithPort()<<" based on port"<<endl;
       return false;
     }
@@ -315,8 +322,6 @@ bool checkWritePolicy(const string& path, pid_t child, ofstream& logger)
 
   return true;
 }
-
-
 
 void HandlerSet::openHandler()
 {
@@ -352,7 +357,7 @@ void HandlerSet::connectHandler()
 // rdi, rsi, rdx = socket, addressptr, length
   
   ComboAddress dest=getPtraceComboAddress(d_child, d_regs.rsi, d_regs.rdx);
-  if(!checkNetworkPolicy(dest, d_child, d_logger)) {
+  if(!checkNetworkPolicy("connect", dest, d_child, d_logger)) {
     justSayNo(d_child, d_regs);
   }
 }
@@ -362,8 +367,10 @@ void HandlerSet::sendtoHandler()
   // ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
   //                const struct sockaddr *dest_addr, socklen_t addrlen);
   
+  if(!getArg5(d_regs))  // this means 'send()'
+    return;
   ComboAddress dest=getPtraceComboAddress(d_child, getArg5(d_regs), getArg6(d_regs));
-  if(!checkNetworkPolicy(dest, d_child, d_logger)) {
+  if(!checkNetworkPolicy("sendto", dest, d_child, d_logger)) {
     justSayNo(d_child, d_regs);
   }
 }
@@ -377,11 +384,10 @@ void HandlerSet::sendmsgHandler()
   getPtraceBytes(d_child, (char*)&msg, getArg2(d_regs), sizeof(msg));
   ComboAddress dest=getPtraceComboAddress(d_child, (unsigned long long)msg.msg_name, msg.msg_namelen);
 
-  if(!checkNetworkPolicy(dest, d_child, d_logger)) {
+  if(!checkNetworkPolicy("sendmsg", dest, d_child, d_logger)) {
     justSayNo(d_child, d_regs);
   }
 }
-
 
 void HandlerSet::unlinkHandler()
 {

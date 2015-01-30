@@ -49,7 +49,7 @@ Allowed options:
                                  AF_NETLINK
   --no-outbound-network arg (=0) no outgoing network connections
   --allowed-netmask arg          only allow access to these masks
-  --allowed-ports arg            only allow access to these ports
+  --allowed-port arg             only allow access to these ports
   --read-only arg (=0)           be read-only
 ```
 

@@ -196,6 +196,36 @@ string getFullPath(pid_t child, unsigned long long fileptr)
   return path;
 }
 
+unsigned long long getArg1(const struct user_regs_struct& regs)
+{
+  return regs.rdi;
+}
+
+unsigned long long getArg2(const struct user_regs_struct& regs)
+{
+  return regs.rsi;
+}
+
+unsigned long long getArg3(const struct user_regs_struct& regs)
+{
+  return regs.rdx;
+}
+
+unsigned long long getArg4(const struct user_regs_struct& regs)
+{
+  return regs.rcx;
+}
+
+unsigned long long getArg5(const struct user_regs_struct& regs)
+{
+  return regs.r8;
+}
+
+unsigned long long getArg6(const struct user_regs_struct& regs)
+{
+  return regs.r9;
+}
+
 string getFullPathAt(pid_t child, unsigned long long fd, unsigned long long fileptr)
 {
   string relpath=getPtraceString(child, fileptr);
@@ -206,6 +236,15 @@ string getFullPathAt(pid_t child, unsigned long long fd, unsigned long long file
 
   cleanupPath(path);
   return path;
+}
+
+void getPtraceBytes(pid_t child, char* dest, unsigned long long src, unsigned long long bytes)
+{
+ for(auto i = 0*bytes; i < bytes; ++i) {
+    unsigned int c = ptrace(PTRACE_PEEKTEXT, child, src + i, 0);
+    memcpy(dest+i, &c, 1);
+  }
+ 
 }
 
 ComboAddress getPtraceComboAddress(pid_t child, unsigned long long sockaddr, unsigned long long socklen)
@@ -294,6 +333,32 @@ void connectHandler(pid_t child, user_regs_struct& regs, ofstream& logger)
   }
 }
 
+void sendtoHandler(pid_t child, user_regs_struct& regs, ofstream& logger)
+{
+  // ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
+  //                const struct sockaddr *dest_addr, socklen_t addrlen);
+  
+  ComboAddress dest=getPtraceComboAddress(child, getArg5(regs), getArg6(regs));
+  if(!checkNetworkPolicy(dest, child, logger)) {
+    justSayNo(child, regs);
+  }
+}
+
+
+void sendmsgHandler(pid_t child, user_regs_struct& regs, ofstream& logger)
+{
+  // ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags);
+
+  struct msghdr msg;
+  getPtraceBytes(child, (char*)&msg, getArg2(regs), sizeof(msg));
+  ComboAddress dest=getPtraceComboAddress(child, (unsigned long long)msg.msg_name, msg.msg_namelen);
+
+  if(!checkNetworkPolicy(dest, child, logger)) {
+    justSayNo(child, regs);
+  }
+}
+
+
 void unlinkHandler(pid_t child, user_regs_struct& regs, ofstream& logger)
 {
   string path = getFullPath(child, regs.rdi);
@@ -338,6 +403,8 @@ try
 	{__NR_open,     openHandler},
 	{__NR_openat,   openatHandler},
 	{__NR_connect,  connectHandler},
+	{__NR_sendto,  sendtoHandler},
+	{__NR_sendmsg,  sendmsgHandler},
 	{__NR_unlink,   unlinkHandler},
 	{__NR_unlinkat, unlinkatHandler},
 	{__NR_socket,   socketHandler}

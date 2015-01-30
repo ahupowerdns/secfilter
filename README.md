@@ -26,7 +26,7 @@ telnet: could not resolve ds9a.nl/25: Name or service not known
 
 Another example:
 ```
-secfilt --allow-resolv --allowed-port=22 ssh pdnsdev.powerdns.com uptime
+$ secfilt --allow-resolv --allowed-port=22 ssh pdnsdev.powerdns.com uptime
  18:30:52 up 31 days,  4:08,  1 user,  load average: 0.02, 0.04, 0.05
 ```
 

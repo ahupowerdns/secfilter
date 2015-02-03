@@ -25,6 +25,7 @@ extern "C"
 NetmaskGroup g_nmg;
 std::unordered_set<unsigned int> g_allowedPorts;
 std::unordered_set<string> g_allowWrite;
+bool g_verbose;
 
 void processConfig(int argc, char** argv)
 {
@@ -38,6 +39,7 @@ void processConfig(int argc, char** argv)
     ("no-outbound-network", po::value<bool>()->default_value(false), "no outgoing network connections")
     ("allowed-netmask", po::value<vector<string> >(), "only allow access to these masks")
     ("allowed-port", po::value<vector<int> >(), "allow access to this port")
+    ("verbose,v", "be verbose and write a log file to ./log")
     ("read-only", po::value<bool>()->default_value(false), "be read-only");
 
   try {
@@ -62,6 +64,7 @@ void processConfig(int argc, char** argv)
       g_allowWrite.insert(a);
     }
 
+    g_verbose=g_vm.count("verbose");
     
     if(g_vm.count("allowed-netmask"))
     for(const auto& a : g_vm["allowed-netmask"].as<vector<string> >()) {
@@ -318,7 +321,8 @@ bool checkNetworkPolicy(const std::string& what, const ComboAddress& dest, pid_t
     return false;
 
   if(dest.sin4.sin_family == AF_INET || dest.sin4.sin_family == AF_INET6) {
-    logger<<child<<": Wants to "<<what<<" to "<<dest.toStringWithPort()<<endl;
+    if(g_verbose)
+      logger<<child<<": Wants to "<<what<<" to "<<dest.toStringWithPort()<<endl;
     if(!g_nmg.empty() && !g_nmg.match(dest)) {
       logger<<child<<": denied connection to to "<<dest.toStringWithPort()<<endl;
       return false;
@@ -357,7 +361,8 @@ void HandlerSet::openHandler()
 {
   string path = getFullPath(d_child, d_regs.rdi);
   int mode=d_regs.rsi & 0xffff;
-  d_logger<<d_child<<": Wants to open absolute path: '"<<path<<"', mode "<<mode<< ", "<<(mode & O_WRONLY)<<", "<<(mode & O_RDWR)<<endl;
+  if(g_verbose)
+    d_logger<<d_child<<": Wants to open absolute path: '"<<path<<"', mode "<<mode<< ", "<<(mode & O_WRONLY)<<", "<<(mode & O_RDWR)<<endl;
   
   if((mode & O_WRONLY) || (mode & O_RDWR)) {
     if(!checkWritePolicy(path, d_child, d_logger)) {
@@ -373,7 +378,8 @@ void HandlerSet::openatHandler()
   string path=getFullPathAt(d_child, d_regs.rdi, d_regs.rsi);
   int mode=d_regs.rdx & 0xffff;
 
-  d_logger<<d_child<<": Wants to openat absolute path: '"<<path<<"', mode "<<mode<< ", "<<(mode & O_WRONLY)<<", "<<(mode & O_RDWR)<<endl;
+  if(g_verbose)
+    d_logger<<d_child<<": Wants to openat absolute path: '"<<path<<"', mode "<<mode<< ", "<<(mode & O_WRONLY)<<", "<<(mode & O_RDWR)<<endl;
   if((mode & O_WRONLY) || (mode & O_RDWR)) {
     if(!checkWritePolicy(path, d_child, d_logger)) {
       d_logger<<d_child<<": openat denied "<<(mode&O_WRONLY) <<", "<<(mode & O_RDWR)<<endl;
@@ -422,7 +428,8 @@ void HandlerSet::sendmsgHandler()
 void HandlerSet::unlinkHandler()
 {
   string path = getFullPath(d_child, d_regs.rdi);
-  d_logger<<d_child<<": wants to unlink '"<<path<<"'"<<endl;
+  if(g_verbose)
+    d_logger<<d_child<<": wants to unlink '"<<path<<"'"<<endl;
   if(!checkWritePolicy(path, d_child, d_logger)) {
     d_logger<<d_child<<": unlink denied"<<endl;
     justSayNo(d_child, d_regs);
@@ -432,7 +439,8 @@ void HandlerSet::unlinkHandler()
 void HandlerSet::unlinkatHandler()
 {
   string path = getFullPathAt(d_child, d_regs.rdi, d_regs.rsi);
-  d_logger<<d_child<<": wants to ulinkat '"<<path<<"'"<<endl;
+  if(g_verbose)
+    d_logger<<d_child<<": wants to ulinkat '"<<path<<"'"<<endl;
   if(!checkWritePolicy(path, d_child, d_logger)) {
     d_logger<<d_child<<": unlinkat denied"<<endl;
     justSayNo(d_child, d_regs);

@@ -214,11 +214,21 @@ void cleanupPath(string& path)
 string getPtraceString(pid_t child, long long unsigned int address)
 {
   string ret;
-  for (int i = 0; i < 255; i++) {
-    unsigned int c = ptrace(PTRACE_PEEKTEXT, child, address + i, 0);
-    if ((c & 0xff) == 0) break;
-    ret.append(1, c & 0xff);
+  long c;
+  char *p;
+  for (int i = 0; i < 255; i += sizeof(c)) {
+    c = ptrace(PTRACE_PEEKTEXT, child, address + i, 0);
+
+    p=(char*)memchr((char*)&c, 0, sizeof(c));
+    if(!p) {
+      ret.append((char*)&c, (char*)(&c+1));
+    }
+    else {
+      ret.append((char*)&c, ((char*)&c)+(p-(char*)&c));
+      break;
+    }
   }	
+
   return ret;
 }
 
@@ -297,9 +307,10 @@ string getFullPathAt(pid_t child, unsigned long long fd, unsigned long long file
 
 void getPtraceBytes(pid_t child, char* dest, unsigned long long src, unsigned long long bytes)
 {
- for(auto i = 0*bytes; i < bytes; ++i) {
-    unsigned int c = ptrace(PTRACE_PEEKTEXT, child, src + i, 0);
-    memcpy(dest+i, &c, 1);
+  long c;
+  for(auto i = 0*bytes; i < bytes; i+= sizeof(c)) {
+    c = ptrace(PTRACE_PEEKTEXT, child, src + i, 0);
+    memcpy(dest+i, &c, min((unsigned int)8, (unsigned int)(bytes-i)));
   }
  
 }
@@ -307,11 +318,8 @@ void getPtraceBytes(pid_t child, char* dest, unsigned long long src, unsigned lo
 ComboAddress getPtraceComboAddress(pid_t child, unsigned long long sockaddr, unsigned long long socklen)
 {
   ComboAddress ret;
+  getPtraceBytes(child, (char*)&ret, sockaddr, min<socklen_t>(socklen, sizeof(ret)));
 
-  for(unsigned int i = 0; i < socklen && i < sizeof(ret); ++i) {
-    unsigned int c = ptrace(PTRACE_PEEKTEXT, child, sockaddr + i, 0);
-    memcpy(((char*)&ret)+i, &c, 1);
-  }
   return ret;
 }
 

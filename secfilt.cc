@@ -105,15 +105,18 @@ struct HandlerSet
     : d_child(child), d_regs(regs), d_logger(logger) {}
 
   void openHandler();
-  void testHandler(int) {}
+
   void openatHandler();
+  
   void connectHandler();
   void sendtoHandler();
   void sendmsgHandler();
+  void socketHandler();
+  
   void unlinkHandler();
   void unlinkatHandler();
   void chdirHandler();
-  void socketHandler();
+
 
   pid_t d_child;
   user_regs_struct& d_regs;
@@ -477,26 +480,38 @@ int main(int argc, char** argv)
 try
 {
   processConfig(argc, argv);
-  
-  pid_t child=fork();
+  ofstream logger("log");  
 
   g_handlers.insert({
       {__NR_open,       &HandlerSet::openHandler},
 	{__NR_openat,   &HandlerSet::openatHandler},
-	{__NR_connect,  &HandlerSet::connectHandler},
-	{__NR_sendto,   &HandlerSet::sendtoHandler},
 	{__NR_chdir,    &HandlerSet::chdirHandler},
 	{__NR_fchdir,   &HandlerSet::chdirHandler},
-	{__NR_sendmsg,  &HandlerSet::sendmsgHandler},
 	{__NR_unlink,   &HandlerSet::unlinkHandler},
-	{__NR_unlinkat, &HandlerSet::unlinkatHandler},
-	{__NR_socket,   &HandlerSet::socketHandler}
+	{__NR_unlinkat, &HandlerSet::unlinkatHandler}
       });
-  
+
+  if(g_vm["no-outbound-network"].as<bool>() || !g_nmg.empty() || !g_allowedPorts.empty() || g_vm.count("mainstream-network-families")) {
+    g_handlers.insert({
+      {__NR_connect,  &HandlerSet::connectHandler},
+      {__NR_sendto,   &HandlerSet::sendtoHandler},
+      {__NR_sendmsg,  &HandlerSet::sendmsgHandler},
+      {__NR_socket,   &HandlerSet::socketHandler}
+    });
+    if(g_verbose)
+      logger<<"Filtering network system calls"<<endl;
+  }
+  else
+    logger<<"Not filtering network system calls"<<endl;
+
+
+  pid_t child=fork();
+
+
   if(child) {
     signal(SIGINT, SIG_IGN);
 
-    ofstream logger("log");
+
     logger<<"Our child is "<<child<<endl;
     int status;
     struct user_regs_struct regs; 
